@@ -45,10 +45,7 @@ class Tacotron2(tf.keras.Model):
     def parse_output(self, outputs, output_lengths=None):
         return outputs
 
-    def call(
-        self,
-        batch,
-    ):
+    def call(self, batch):
         phon, mels = batch
         mels = tf.transpose(mels, perm=[0,2,1])
         phon = self.tokenizer(phon)
@@ -57,6 +54,23 @@ class Tacotron2(tf.keras.Model):
         encoder_outputs = self.encoder(embedded_inputs, mask)
 
         mels, gates, alignments = self.decoder(encoder_outputs, mels, mask)
+        mels = tf.transpose(mels, (1, 0, 2))
+        alignments = tf.transpose(alignments, (1, 0, 2))
+        gates = tf.squeeze(tf.transpose(gates, (1, 0, 2)),-1)
+        mels = tf.reshape(mels, (tf.shape(mels)[0], -1, self.n_mel_channels))
+        mels_postnet = self.postnet(mels)
+
+        return mels, mels_postnet, gates, alignments
+
+     def inference(self, batch):
+        phon, mels = batch
+        mels = tf.transpose(mels, perm=[0,2,1])
+        phon = self.tokenizer(phon)
+        mask = self.embedding.compute_mask(phon)
+        embedded_inputs = self.embedding(phon)
+        encoder_outputs = self.encoder(embedded_inputs, mask)
+
+        mels, gates, alignments = self.decoder.inference(encoder_outputs)
         mels = tf.transpose(mels, (1, 0, 2))
         alignments = tf.transpose(alignments, (1, 0, 2))
         gates = tf.squeeze(tf.transpose(gates, (1, 0, 2)),-1)
