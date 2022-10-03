@@ -1,0 +1,23 @@
+train:
+        batch_size: 64
+        epochs: 10000
+        optimizer: 'adam'
+        drop_remainder: True
+        len_dataset: 13100
+        clip_norm: 5.
+        lr: 0.001
+
+        weight_decay: 0.000001
+        warmup_steps: 4000
+        run_eagerly: False
+        bce_weight: 15.
+        tensorboard: True
+        plot_every_n_batches: 500
+
+        gradual_training: [[4, 32, 25], [3, 32, 120], [2, 32, 250]]
+
+data:
+        transcript_path: "/home/theodor/final/preprocess/metadata_pp.csv"
+        audio_dir: "/home/theodor/LJSpeech-1.1/wavs"
+        statistics: "/gpfswork/rech/xcz/ukv19jy/mine/tacotron2/preprocess/ljspeech_stats.csv"
+        checkpoint_path: "/home/theodor/final/checkpoint"

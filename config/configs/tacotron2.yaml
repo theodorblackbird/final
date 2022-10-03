@@ -1,0 +1,50 @@
+encoder:
+        char_embedding_size: 512
+
+        conv_layer:
+                n: 3
+                filter : 5
+                kernel_size : 5
+                dropout_rate: 0.5
+        bi_lstm:
+                units: 256
+
+decoder:
+        prenet:
+                n: 2
+                units: 256
+                dropout_rate: 0.5
+        lsattention:
+                rnn_dim: 512
+                rnn_dropout_rate: 0.1
+                embed_dim: 512
+                att_dim: 128
+                att_n_filters: 32
+                att_ker_size: 31
+        
+        dec_rnn_units: 1024
+        dec_rnn_dropout_rate: 0.1
+
+        char_embedding_size: 512
+
+        postnet:
+                filters: 512
+                n: 5
+                kernel_size: 5
+                dropout_rate: 0.1
+
+
+n_mel_channels: 80
+n_frames_per_step: 6
+
+mel_spec:
+        frame_length: 1024
+        frame_step: 256
+        fft_length: None
+        sampling_rate: 22050
+        n_mel_channels: 80
+        freq_min: 0
+        freq_max: 8000
+
+
+

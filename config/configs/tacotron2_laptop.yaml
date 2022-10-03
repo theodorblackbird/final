@@ -1,0 +1,64 @@
+train:
+        batch_size: 3
+        epochs: 100
+        optimizer: 'adam'
+        drop_remainder: True
+
+train_data:
+        transcript_path: "preprocess/metadata_pp.csv"
+        audio_dir: "/home/theodor/LJSpeech-1.1/wavs"
+        statistics: "/home/theodor/ircam_tts/preprocess/ljspeech_stats.csv"
+        checkpoint_path: "/home/theodor/ircam_tts/checkpoint/"
+encoder:
+        char_embedding_size: 512
+
+        conv_layer:
+                n: 3
+                filter : 5
+                kernel_size : 3
+                dropout_rate: 0.5
+        bi_lstm:
+                units: 128
+
+decoder:
+        prenet:
+                n: 2
+                units: 256
+                dropout_rate: 0.5
+        lsattention:
+                rnn_dim: 512
+                embed_dim: 512
+                att_dim: 128
+                att_n_filters: 32
+                att_ker_size: 31
+        
+        dec_rnn_units: 256 
+
+        char_embedding_size: 512
+
+        postnet:
+                filters: 32
+                n: 5
+                kernel_size: 31
+                dropout_rate: 0.5
+
+
+n_mel_channels: 80
+n_frames_per_step: 10
+
+
+mel_spec:
+        frame_length: 1024
+        frame_step: 256
+        fft_length: None
+        sampling_rate: 22050
+        n_mel_channels: 80
+        freq_min: 125
+        freq_max: 7600
+        ref_level_db: 20.
+        min_level_db: -100.
+        max_norm: 4.
+
+trimming:
+        on: True
+        epsilon: 10e-4

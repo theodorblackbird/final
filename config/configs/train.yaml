@@ -1,0 +1,18 @@
+train:
+        batch_size: 64
+        epochs: 1000
+        optimizer: 'adam'
+        drop_remainder: True
+        len_dataset: 13100
+        clip_norm: 5.
+        lr: 0.0005
+        run_eagerly: False
+        bce_weight: 15.
+
+
+
+data:
+        transcript_path: "/gpfswork/rech/xcz/ukv19jy/mine/tacotron2/preprocess/metadata_pp.csv"
+        audio_dir: "/gpfswork/rech/xcz/ukv19jy/tacotron2/LJSpeech-1.1/wavs"
+        statistics: "/gpfswork/rech/xcz/ukv19jy/mine/tacotron2/preprocess/ljspeech_stats.csv"
+        checkpoint_path: "/gpfswork/rech/xcz/ukv19jy/mine/tacotron2/checkpoint/"
