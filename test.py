@@ -3,7 +3,7 @@ import tensorflow as tf
 
 from config.config import Tacotron2Config
 from datasets.ljspeech import ljspeechDataset
-from model.Tacotron2 import Tacotron2
+from model.Tacotron2 import Tacotron2, split_func
 
 import os
 import platform
@@ -123,7 +123,8 @@ if __name__ == "__main__":
     batch_size = 16
     print(train_conf["data"]["transcript_path"])
     ljspeech_text = tf.data.TextLineDataset(train_conf["data"]["transcript_path"])
-    tac = Tacotron2(preprocess_config, model_config, train_config, ljspeech_text.map(lambda x : tf.strings.split(x, sep='|')[1]))
+    tac = Tacotron2(preprocess_config, model_config, train_config)
+    tac.adapt(ljspeech_text.map(lambda x : tf.strings.split(x, sep='|')[1]))
     dataset_mapper = ljspeechDataset(conf, train_conf)
     ljspeech = ljspeech_text.map(dataset_mapper)
 
@@ -153,15 +154,16 @@ if __name__ == "__main__":
             verbose=1,
             save_best_only=True,
             ))
+    checkpoint = tf.train.Checkpoint(optimizer=optimizer, model=tac)
     batch = next(iter(ljspeech))
     x, y = batch
     tac(x)
-    tac = tf.keras.models.load_model("checkpoint20221002-225416")
-"""    tac.compile(optimizer=optimizer,
-            run_eagerly=False)
+    tac.compile(optimizer=optimizer)
+    checkpoint.restore(tf.train.latest_checkpoint("checkpoint"))
+	
+
 
     tac.fit(ljspeech,
             batch_size=batch_size,
             epochs=epochs,
             callbacks=callbacks)
-"""

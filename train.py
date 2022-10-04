@@ -16,6 +16,20 @@ import matplotlib.cm
 import yaml
 import os
 
+class CheckpointCallback(tf.keras.callbacks.Callback):
+    def __init__(self, ckpt, directory, max_to_keep):
+        super().__init__()
+        self.ckpt = ckpt
+        self.ckpt_manager = tf.train.CheckpointManager(self.ckpt,
+                directory,
+                max_to_keep)
+    
+    def on_batch_end(self, epoch, logs=None):
+            self.ckpt_manager.save()
+
+
+
+
 @tf.keras.utils.register_keras_serializable()
 class NoamLR(tf.keras.optimizers.schedules.LearningRateSchedule):
     def __init__(self, initial_learning_rate, warmup_steps):
@@ -123,7 +137,10 @@ if __name__ == "__main__":
     batch_size = 16
     print(train_conf["data"]["transcript_path"])
     ljspeech_text = tf.data.TextLineDataset(train_conf["data"]["transcript_path"])
-    tac = Tacotron2(preprocess_config, model_config, train_config, ljspeech_text.map(lambda x : tf.strings.split(x, sep='|')[1]))
+    tac = Tacotron2(preprocess_config, model_config, train_config)
+    tac.adapt(ljspeech_text.map(lambda x : tf.strings.split(x, sep='|')[1]))
+    
+
     dataset_mapper = ljspeechDataset(conf, train_conf)
     ljspeech = ljspeech_text.map(dataset_mapper)
 
@@ -149,12 +166,11 @@ if __name__ == "__main__":
     #file_writer = tf.summary.create_file_writer(logdir + '/plots')
     #callbacks.append(PlotCallback(eval_ljspeech, file_writer))
 
+    checkpoint = tf.train.Checkpoint(optimizer=optimizer, model=tac)
+    checkpoint_manager = CheckpointCallback(checkpoint, "checkpoint", 5)
 
-    callbacks.append(tf.keras.callbacks.ModelCheckpoint(filepath=train_conf["data"]["checkpoint_path"] + date_now,
-            monitor='loss',
-            verbose=1,
-            save_best_only=True,
-            ))
+
+    callbacks.append(checkpoint_manager)
 
     tac.compile(optimizer=optimizer,
             run_eagerly=False)

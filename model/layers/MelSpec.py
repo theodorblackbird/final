@@ -6,6 +6,7 @@ from scipy.signal import get_window
 from librosa.util import pad_center, tiny
 from librosa.filters import mel as librosa_mel_fn
 
+
 class STFT(tf.keras.layers.Layer):
     """adapted from Prem Seetharaman's https://github.com/pseeth/pytorch-stft"""
     def __init__(self, filter_length=800, hop_length=200, win_length=800,
@@ -70,7 +71,7 @@ class TacotronSTFT(tf.keras.layers.Layer):
         self.sampling_rate = sampling_rate
         self.stft_fn = STFT(filter_length, hop_length, win_length)
         mel_basis = librosa_mel_fn(
-            sampling_rate, filter_length, n_mel_channels, mel_fmin, mel_fmax)
+            sampling_rate, filter_length, n_mel_channels, mel_fmin, mel_fmax, htk=False ,norm='slaney')
         self.mel_basis = tf.convert_to_tensor(mel_basis)
 
     def spectral_normalize(self, magnitudes):
@@ -111,6 +112,7 @@ class MelSpec(tf.keras.layers.Layer):
         self.ref_level_db = ref_level_db
         self.min_level_db = min_level_db
         self.max_norm = max_norm
+        self.lin_amp_off = 1e-5
 
         self.mel_filterbank = tf.signal.linear_to_mel_weight_matrix(
                 num_mel_bins=self.num_mel_channels,
@@ -130,8 +132,9 @@ class MelSpec(tf.keras.layers.Layer):
 
         magnitude = tf.abs(stft)
 
-        mel = tf.matmul(tf.square(magnitude), self.mel_filterbank)
-        mel = tf.math.log(tf.clip_by_value(mel, 1e-5, np.inf))
+        #mel = tf.matmul(tf.square(magnitude), self.mel_filterbank)
+        mel = tf.matmul(magnitude, self.mel_filterbank)
+        mel = tf.math.log(mel + self.lin_amp_off)
 
         return mel
 
