@@ -17,7 +17,7 @@ train:
         gradual_training: [[4, 32, 25], [3, 32, 120], [2, 32, 250]]
 
 data:
-        transcript_path: "/home/theodor/final/preprocess/metadata_pp.csv"
-        audio_dir: "/home/theodor/LJSpeech-1.1/wavs"
+        transcript_path: "/data/anasynth_nonbp/lemerle/final/preprocess/metadata_pp.csv"
+        audio_dir: "/data/anasynth_nonbp/lemerle/TTS/LJSpeech-1.1/wavs"
         statistics: "/gpfswork/rech/xcz/ukv19jy/mine/tacotron2/preprocess/ljspeech_stats.csv"
-        checkpoint_path: "/home/theodor/final/checkpoint"
+        checkpoint_path: "/data/anasynth_nonbp/lemerle/final/checkpoint"

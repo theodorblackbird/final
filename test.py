@@ -120,7 +120,7 @@ if __name__ == "__main__":
     initalize dataset
     """
 
-    batch_size = 16
+    batch_size = 1
     print(train_conf["data"]["transcript_path"])
     ljspeech_text = tf.data.TextLineDataset(train_conf["data"]["transcript_path"])
     tac = Tacotron2(preprocess_config, model_config, train_config)
@@ -157,13 +157,8 @@ if __name__ == "__main__":
     checkpoint = tf.train.Checkpoint(optimizer=optimizer, model=tac)
     batch = next(iter(ljspeech))
     x, y = batch
-    tac(x)
     tac.compile(optimizer=optimizer)
     checkpoint.restore(tf.train.latest_checkpoint("checkpoint"))
-	
-
-
-    tac.fit(ljspeech,
-            batch_size=batch_size,
-            epochs=epochs,
-            callbacks=callbacks)
+    phon, _ = x
+    y = tac.inference(phon)
+    print(y[2])

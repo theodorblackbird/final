@@ -14,17 +14,26 @@ from math import sqrt
 from .blocks import LinearNorm
 from .modules import Encoder, Decoder, Postnet
 
-def split(x):
+@tf.keras.utils.register_keras_serializable()
+def split_func(x):
     return tf.strings.unicode_split(x, 'UTF-8')
 
 class Tacotron2(tf.keras.Model):
     """ Tacotron2 """
 
-    def __init__(self, preprocess_config, model_config, train_config, dataset):
+    
+    def adapt(self, dataset):
+        self.tokenizer.adapt(dataset.batch(64))
+
+    def __init__(self, preprocess_config, model_config, train_config, vocabulary=None):
         super(Tacotron2, self).__init__()
         self.model_config = model_config
-        self.tokenizer = tf.keras.layers.TextVectorization(split=split, standardize=None)
+        self.tokenizer = tf.keras.layers.TextVectorization(split=split_func, standardize=None)
+        if vocabulary:
+            self.tokenizer.set_vocabulary(vocabulary)
         self.train_config = train_config
+        self.preprocess_config = preprocess_config
+        self.model_config = model_config
 
         self.encoder = Encoder(model_config)
         self.decoder = Decoder(preprocess_config, model_config)
@@ -32,18 +41,19 @@ class Tacotron2(tf.keras.Model):
         self.mse_loss = tf.keras.losses.MeanSquaredError(reduction=tf.keras.losses.Reduction.SUM_OVER_BATCH_SIZE)
         self.bce_loss = tf.keras.losses.BinaryCrossentropy(from_logits=True)
 
-
-        self.tokenizer.adapt(dataset.batch(64))
         self.embedding = tf.keras.layers.Embedding(self.tokenizer.vocabulary_size(),
                 self.model_config["encoder"]["encoder_embedding_dim"],
                 mask_zero=True)
 
-
         self.n_mel_channels = preprocess_config["preprocessing"]["mel"]["n_mel_channels"]
 
+    def get_config(self):
+        return {'vocabulary': self.tokenizer.get_vocabulary(), 'preprocess_config': self.preprocess_config, 'model_config': self.model_config, 'train_config': self.train_config}
 
-    def parse_output(self, outputs, output_lengths=None):
-        return outputs
+    @classmethod
+    def from_config(cls, config):
+        return cls(config['preprocess_config'], config['model_config'], config['train_config'], vocabulary=config['vocabulary'])
+
 
     def call(self, batch):
         phon, mels = batch
@@ -57,27 +67,28 @@ class Tacotron2(tf.keras.Model):
         mels = tf.transpose(mels, (1, 0, 2))
         alignments = tf.transpose(alignments, (1, 0, 2))
         gates = tf.squeeze(tf.transpose(gates, (1, 0, 2)),-1)
+    
         mels = tf.reshape(mels, (tf.shape(mels)[0], -1, self.n_mel_channels))
         mels_postnet = self.postnet(mels)
 
         return mels, mels_postnet, gates, alignments
-
-     def inference(self, batch):
-        phon, mels = batch
-        mels = tf.transpose(mels, perm=[0,2,1])
+    @tf.function
+    def inference(self, phon):
+        
         phon = self.tokenizer(phon)
         mask = self.embedding.compute_mask(phon)
         embedded_inputs = self.embedding(phon)
         encoder_outputs = self.encoder(embedded_inputs, mask)
 
-        mels, gates, alignments = self.decoder.inference(encoder_outputs)
+        mels, gates, alignments = self.decoder.inference(encoder_outputs, mask)
         mels = tf.transpose(mels, (1, 0, 2))
         alignments = tf.transpose(alignments, (1, 0, 2))
-        gates = tf.squeeze(tf.transpose(gates, (1, 0, 2)),-1)
+        gates = tf.squeeze(tf.transpose(gates, (1, 0, 2)), -1)
         mels = tf.reshape(mels, (tf.shape(mels)[0], -1, self.n_mel_channels))
         mels_postnet = self.postnet(mels)
 
         return mels, mels_postnet, gates, alignments
+
 
     def train_step(self, data):
         x, y = data

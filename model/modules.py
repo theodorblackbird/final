@@ -153,14 +153,14 @@ class Decoder(tf.keras.layers.Layer):
 
         gate_prediction = self.gate_layer(decoder_hidden_attention_context)
 
-        return decoder_output, gate_prediction, attention_weights, attention_rnn_state, decoder_rnn_state, attention_weights, attention_weights_cum, attention_context
+        return decoder_output, gate_prediction, attention_weights, attention_rnn_state, decoder_rnn_state, attention_weights_cum, attention_context
+    
 
     def call(self, memory, decoder_inputs, mask):
         batch_size = tf.shape(memory)[0]
         max_enc = tf.shape(memory)[1]
 
         decoder_input = tf.expand_dims(self.get_go_frame(memory), 0) # (1, B, n_mel_channels)
-        #decoder_inputs = self.parse_decoder_inputs(decoder_inputs) # (T_out/r, B, n_mel_channels*r)
         decoder_inputs = rearrange(decoder_inputs, 'b c (h r) -> h b (c r)', r=self.n_frames_per_step)
         decoder_inputs = tf.concat((decoder_input, decoder_inputs), axis=0) 
         decoder_inputs = self.prenet(decoder_inputs) # (1+(T_out/r), B, prenet_dim)
@@ -173,14 +173,16 @@ class Decoder(tf.keras.layers.Layer):
         first_gate = tf.zeros((batch_size, 1))
         first_mel = tf.zeros((batch_size, self.n_frames_per_step * self.n_mel_channels))
 
-        initializer = (first_mel, first_gate, attention_weights, attention_rnn_state, decoder_rnn_state, attention_weights, attention_weights_cum, attention_context)
+        initializer = (first_mel, first_gate, attention_weights,\
+                attention_rnn_state, decoder_rnn_state, attention_weights_cum,\
+                attention_context)
 
         fn = lambda acc, x: self.decode(x,
                 acc[3],
                 acc[4],
+                acc[2],
                 acc[5],
                 acc[6],
-                acc[7],
                 memory,
                 processed_memory,
                 mask)
@@ -188,11 +190,11 @@ class Decoder(tf.keras.layers.Layer):
         results = tf.scan(fn,
                 decoder_inputs,
                 initializer=initializer)
-        mel_outputs, gate_outputs, alignments, _, _, _, _, _ = results
+        mel_outputs, gate_outputs, alignments, _, _, _, _ = results
 
         return mel_outputs, gate_outputs, alignments
 
-"""
+    """
         i = tf.constant(0, dtype=tf.int32)
 
         mel_outputs, gate_outputs, alignments = tf.TensorArray(tf.float32, input_len-1),tf.TensorArray(tf.float32, input_len-1), tf.TensorArray(tf.float32, input_len-1)
@@ -206,41 +208,63 @@ class Decoder(tf.keras.layers.Layer):
             i += 1
 
         return mel_outputs.stack(), gate_outputs.stack(), alignments.stack()
-"""
-        
+    """
 
-    def inference(self, memory):
+
+    def inference(self, memory, mask):
         batch_size = tf.shape(memory)[0]
         max_enc = tf.shape(memory)[1]
 
         decoder_input = tf.expand_dims(self.get_go_frame(memory), 0) 
-        decoder_inputs = rearrange(decoder_inputs, 'b c (h r) -> h b (c r)', r=self.n_frames_per_step)
-        decoder_inputs = tf.concat((decoder_input, decoder_inputs), axis=0) 
-        decoder_inputs = self.prenet(decoder_inputs) 
-        decoder_inputs = decoder_inputs[:-1, :, :]
 
         attention_rnn_state, decoder_rnn_state, attention_weights, attention_weights_cum, attention_context, processed_memory = self.initialize_decoder_states(memory, mask=mask)
 
-        input_len = tf.shape(decoder_inputs)[0]
+        input_len = tf.shape(decoder_input)[0]
 
-        first_gate = tf.zeros((batch_size, 1))
+        first_gate = -tf.ones((batch_size, 1))
         first_mel = tf.zeros((batch_size, self.n_frames_per_step * self.n_mel_channels))
 
-        initializer = (first_mel, first_gate, attention_weights, attention_rnn_state, decoder_rnn_state, attention_weights, attention_weights_cum, attention_context)
+        mels_outputs = tf.TensorArray(tf.float32, size=self.max_decoder_steps, dynamic_size=True)
+        gate_outputs = tf.TensorArray(tf.float32, size=self.max_decoder_steps, dynamic_size=True)
+        alignments = tf.TensorArray(tf.float32, size=self.max_decoder_steps, dynamic_size=True)
+
+        i = tf.constant(0)
+
+        loop_vars = (i,
+                first_gate, 
+                first_mel, 
+                attention_weights, 
+                attention_rnn_state, 
+                decoder_rnn_state, 
+                attention_weights_cum, 
+                attention_context,
+                mels_outputs,
+                gate_outputs,
+                alignments)
+
         
-        cond = lambda i, gate, : i
-        body = lambda i, gate,\
-                decoder_input,\
-                attention_weights,\
-                attention_weights_cum,\
-                attention_rnn_state,\
-                decoder_rnn_state,\
-                attention_weights,\
-                attention_context,\
-                memory,\
-                processed_memory,\
-                mask:\
-                self.decode(decoder_input,
+        def cond(i, gate_prediction, _1,_2,_3,_4,_5,_6,_7,_8,_9):
+            return tf.math.less(i, self.max_decoder_steps) and\
+                    tf.math.less(tf.math.sigmoid(gate_prediction), 0.5)
+
+        def body(i,_,decoder_input,
+                attention_weights,
+                attention_rnn_state,
+                decoder_rnn_state,
+                attention_weights_cum,
+                attention_context,
+                mels_outputs,
+                gate_outputs,
+                alignments):
+
+            decoder_input = self.prenet(decoder_input)
+            decoder_output,\
+            gate_output,\
+            attention_weights,\
+            attention_rnn_state,\
+            decoder_rnn_state,\
+            attention_weights_cum,\
+            attention_context = self.decode(decoder_input,
                         attention_rnn_state,
                         decoder_rnn_state,
                         attention_weights,
@@ -249,13 +273,38 @@ class Decoder(tf.keras.layers.Layer):
                         memory,
                         processed_memory,
                         mask)
+            mels_outputs = mels_outputs.write(i, decoder_output)
+            gate_outputs = gate_outputs.write(i, gate_output)
+            alignments = alignments.write(i, attention_weights)
+
+            i +=1
+
+            return i,\
+                    gate_output,\
+                    decoder_output,\
+                    attention_weights,\
+                    attention_rnn_state,\
+                    decoder_rnn_state,\
+                    attention_weights_cum,\
+                    attention_context,\
+                    mels_outputs,\
+                    gate_outputs,\
+                    alignments\
+
 
         results = tf.while_loop(cond,
-                decoder_inputs,
-                initializer=initializer)
-        mel_outputs, gate_outputs, alignments, _, _, _, _, _ = results
+                body,
+                loop_vars=loop_vars)
 
-        return mel_outputs, gate_outputs, alignments
+        i,_,_,_,_,_,_,_,\
+                mels_outputs,gate_outputs,alignments = results
+
+        
+        mels_outputs = mels_outputs.gather(tf.range(i))
+        gate_outputs = gate_outputs.gather(tf.range(i))
+        alignments = alignments.gather(tf.range(i))
+
+        return mels_outputs, tf.math.sigmoid(gate_outputs), alignments
 
 
 class LocationLayer(tf.keras.layers.Layer):

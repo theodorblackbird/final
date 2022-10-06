@@ -15,6 +15,7 @@ from pprint import pprint
 import matplotlib.cm
 import yaml
 import os
+import matplotlib as plt
 
 class CheckpointCallback(tf.keras.callbacks.Callback):
     def __init__(self, ckpt, directory, max_to_keep):
@@ -47,45 +48,45 @@ class NoamLR(tf.keras.optimizers.schedules.LearningRateSchedule):
         return config
 
 
-@tf.keras.utils.register_keras_serializable()
-class PlotCallback(tf.keras.callbacks.Callback):
+class LogCallback(tf.keras.callbacks.Callback):
     def __init__(self, ds, fw):
         self.g_step = 0
         self.ds = ds
         self.cm = tf.constant(matplotlib.cm.get_cmap('viridis').colors, dtype=tf.float32)
         self.fw = fw
+    
+    def on_epoch_end(self, logs=None):
+        self._plot_images()
 
-    def on_train_epoch_end(self, batch, logs=None):
+    def on_train_batch_end(self, batch, logs=None):
+        with self.fw.as_default():
+            for keys in logs.keys():
+                tf.summary.scalar(keys, logs[keys], step=self.g_step)
+        self.g_step += 1
+         
+    def _normalize_and_map_colors(self, x):
+        x = tf.expand_dims(x, -1)
+        x = tf.transpose(x, [0,2,1,3])
+        x = (x - tf.math.reduce_min(x))/(tf.math.reduce_max(x) - tf.math.reduce_min(x))
+        x *= 255
+        x = tf.squeeze(x)
+        x = tf.cast(tf.round(mels_image), dtype=tf.int32)
+        x = tf.gather(self.cm, x)
+        return x
+
+    def _plot_images(self):
         x, y = next(iter(self.ds))
         true_mels, true_gates, ga_mask, mels_mask = y
         mels, mels_postnet, gates, alignments = self.model(x)
 
-        true_mels = tf.expand_dims(true_mels, -1)
-        alignments = tf.expand_dims(alignments, -1)
-        mels= tf.expand_dims(mels, -1)
-        
-        
-        normalize = lambda x: (x - tf.math.reduce_min(x))/(tf.math.reduce_max(x) - tf.math.reduce_min(x))
-        mels_image = tf.squeeze(normalize(tf.transpose(mels, [0,2,1,3]))*255)
-        true_mels_image = tf.squeeze(normalize(tf.transpose(true_mels, [0,2,1,3]))*255)
-        alignments_image = tf.squeeze(normalize(tf.transpose(alignments, [0,2,1,3]))*255)
+        mels_image = self._normalize_and_map_colors(mels)
+        true_mels_image = self._normalize_and_map_colors(true_mels)
+        alignments_image = self._normalize_and_map_colors(alignments)
 
-        mels_image = tf.cast(tf.round(mels_image), dtype=tf.int32)
-        true_mels_image = tf.cast(tf.round(true_mels_image), dtype=tf.int32)
-        alignments_image = tf.cast(tf.round(alignments_image), dtype=tf.int32)
-
-        mels_image = tf.gather(self.cm, mels_image)
-        true_mels_image = tf.gather(self.cm, true_mels_image)
-        alignments_image = tf.gather(self.cm, alignments_image)
         with self.fw.as_default() :
             tf.summary.image("mels", mels_image, step=self.g_step)
             tf.summary.image("true_mels", true_mels_image, step=self.g_step)
             tf.summary.image("alignments", alignments_image, step=self.g_step)
-    def get_config(self):
-        config = {'g_step': self.g_step,
-                'ds': self.ds,
-                'cm': self.cm}
-        return config
 
 
 
@@ -134,7 +135,7 @@ if __name__ == "__main__":
     initalize dataset
     """
 
-    batch_size = 16
+    batch_size = 64
     print(train_conf["data"]["transcript_path"])
     ljspeech_text = tf.data.TextLineDataset(train_conf["data"]["transcript_path"])
     tac = Tacotron2(preprocess_config, model_config, train_config)
@@ -152,25 +153,50 @@ if __name__ == "__main__":
             padding_values=((None, None), (0., 1., 0., 0.)),
             drop_remainder=True)
 
+
+    """
+    compute statistics
+    """
+    """
+    def reduce_func(old, batch):
+        x, y = batch
+        phon, mel = x
+        
+        old_phon, old_mel = old
+
+        new_phon = tf.math.maximum(old_phon, tf.strings.length(phon))
+        new_mel = tf.math.maximum(old_mel, tf.shape(mel)[0])
+
+        return (new_phon, new_mel)
+    print(ljspeech.reduce((0, 0), reduce_func=reduce_func))
+    """
+
     ljspeech = ljspeech.padded_batch(batch_size, 
             padding_values=((None, None), (0., 1., 0., 0.)),
-            drop_remainder=True)
-
+            drop_remainder=True,
+            )
+    x, y = next(iter(ljspeech))
+    print(bytes(str(x[0].numpy()), encoding='utf-8').decode())
+    """
     epochs = 1000
     learning_rate = train_config["optimizer"]["init_lr"]
 
     optimizer = tf.keras.optimizers.Adam(learning_rate=1e-3)
 
-    callbacks.append(tf.keras.callbacks.TensorBoard(log_dir=logdir, 
-        update_freq=30))
-    #file_writer = tf.summary.create_file_writer(logdir + '/plots')
-    #callbacks.append(PlotCallback(eval_ljspeech, file_writer))
 
     checkpoint = tf.train.Checkpoint(optimizer=optimizer, model=tac)
     checkpoint_manager = CheckpointCallback(checkpoint, "checkpoint", 5)
+    log_dir = "logs"
+    log_writer = tf.summary.create_file_writer(log_dir)
+    log_callback = LogCallback(eval_ljspeech, log_writer)
+
+
+
+
 
 
     callbacks.append(checkpoint_manager)
+    callbacks.append(log_callback)
 
     tac.compile(optimizer=optimizer,
             run_eagerly=False)
@@ -179,4 +205,4 @@ if __name__ == "__main__":
             batch_size=batch_size,
             epochs=epochs,
             callbacks=callbacks)
-
+    """
